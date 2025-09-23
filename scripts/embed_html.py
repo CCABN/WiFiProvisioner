@@ -44,7 +44,7 @@ def main():
             f.write("// Do not edit manually - changes will be overwritten\n\n")
             f.write(combined_content)
 
-        print(f"Successfully generated {output_file}")
+        print(f"\n===================Successfully generated {output_file}===============================\n")
 
     except Exception as e:
         print(f"Error generating header file: {e}")
