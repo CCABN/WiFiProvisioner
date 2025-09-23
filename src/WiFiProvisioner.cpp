@@ -92,16 +92,27 @@ void networkScan(JsonDocument &doc) {
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
                              "Starting Network Scan...");
   int n = WiFi.scanNetworks(false, false);
-  if (n) {
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Found %d networks", n);
+  if (n > 0) {
     for (int i = 0; i < n; ++i) {
-      JsonObject network = networks.add<JsonObject>();
-      network["rssi"] = convertRRSItoLevel(WiFi.RSSI(i));
-      network["ssid"] = WiFi.SSID(i);
-      network["authmode"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? 0 : 1;
+      String ssid = WiFi.SSID(i);
+      if (ssid.length() > 0) {  // Only add networks with valid SSIDs
+        JsonObject network = networks.add<JsonObject>();
+        network["rssi"] = convertRRSItoLevel(WiFi.RSSI(i));
+        network["ssid"] = ssid;
+        network["authmode"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? 0 : 1;
+      }
     }
+  } else if (n == 0) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
+                               "No networks found during scan");
+  } else {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
+                               "Network scan failed with error: %d", n);
   }
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
-                             "Network scan complete");
+                             "Network scan complete, added %d networks", networks.size());
 }
 
 /**
@@ -121,7 +132,11 @@ void networkScan(JsonDocument &doc) {
  */
 void sendHeader(WiFiClient &client, int statusCode, const char *contentType,
                 size_t contentLength) {
-  client.print("HTTP/1.0 ");
+  if (!client.connected()) {
+    return;
+  }
+
+  client.print("HTTP/1.1 ");
   client.print(statusCode);
   client.println(" OK");
 
@@ -132,6 +147,9 @@ void sendHeader(WiFiClient &client, int statusCode, const char *contentType,
   client.println(contentLength);
 
   client.println("Connection: close");
+  client.println("Cache-Control: no-cache, no-store, must-revalidate");
+  client.println("Pragma: no-cache");
+  client.println("Expires: 0");
 
   client.println();
 }
@@ -404,6 +422,10 @@ bool WiFiProvisioner::startProvisioning() {
   _server->on("/update", [this]() { this->handleUpdateRequest(); });
   _server->on("/generate_204", [this]() { this->handleRootRequest(); });
   _server->on("/fwlink", [this]() { this->handleRootRequest(); });
+  _server->on("/hotspot-detect.html", [this]() { this->handleRootRequest(); });
+  _server->on("/library/test/success.html", [this]() { this->handleRootRequest(); });
+  _server->on("/ncsi.txt", [this]() { this->handleRootRequest(); });
+  _server->on("/connecttest.txt", [this]() { this->handleRootRequest(); });
   _server->on("/factoryreset", HTTP_POST,
               [this]() { this->handleResetRequest(); });
   _server->onNotFound([this]() { this->handleRootRequest(); });
@@ -600,34 +622,40 @@ void WiFiProvisioner::handleRootRequest() {
                              "Calculated Content Length: %zu", contentLength);
 
   WiFiClient client = _server->client();
+  if (!client.connected()) {
+    return;
+  }
+
   sendHeader(client, 200, "text/html", contentLength);
 
-  client.write_P(index_html1, strlen_P(index_html1));
-  client.print(_config.HTML_TITLE);
-  client.write_P(index_html2, strlen_P(index_html2));
-  client.print(_config.THEME_COLOR);
-  client.write_P(index_html3, strlen_P(index_html3));
-  client.print(_config.SVG_LOGO);
-  client.write_P(index_html4, strlen_P(index_html4));
-  client.print(_config.PROJECT_TITLE);
-  client.write_P(index_html5, strlen_P(index_html5));
-  client.print(_config.PROJECT_SUB_TITLE);
-  client.write_P(index_html6, strlen_P(index_html6));
-  client.print(_config.PROJECT_INFO);
-  client.write_P(index_html7, strlen_P(index_html7));
-  client.print(_config.INPUT_TEXT);
-  client.write_P(index_html8, strlen_P(index_html8));
-  client.print(inputLengthStr);
-  client.write_P(index_html9, strlen_P(index_html9));
-  client.print(_config.CONNECTION_SUCCESSFUL);
-  client.write_P(index_html10, strlen_P(index_html10));
-  client.print(_config.FOOTER_TEXT);
-  client.write_P(index_html11, strlen_P(index_html11));
-  client.print(_config.RESET_CONFIRMATION_TEXT);
-  client.write_P(index_html12, strlen_P(index_html12));
-  client.print(showResetField);
-  client.write_P(index_html13, strlen_P(index_html13));
-  client.flush();
+  if (client.connected()) {
+    client.write_P(index_html1, strlen_P(index_html1));
+    client.print(_config.HTML_TITLE);
+    client.write_P(index_html2, strlen_P(index_html2));
+    client.print(_config.THEME_COLOR);
+    client.write_P(index_html3, strlen_P(index_html3));
+    client.print(_config.SVG_LOGO);
+    client.write_P(index_html4, strlen_P(index_html4));
+    client.print(_config.PROJECT_TITLE);
+    client.write_P(index_html5, strlen_P(index_html5));
+    client.print(_config.PROJECT_SUB_TITLE);
+    client.write_P(index_html6, strlen_P(index_html6));
+    client.print(_config.PROJECT_INFO);
+    client.write_P(index_html7, strlen_P(index_html7));
+    client.print(_config.INPUT_TEXT);
+    client.write_P(index_html8, strlen_P(index_html8));
+    client.print(inputLengthStr);
+    client.write_P(index_html9, strlen_P(index_html9));
+    client.print(_config.CONNECTION_SUCCESSFUL);
+    client.write_P(index_html10, strlen_P(index_html10));
+    client.print(_config.FOOTER_TEXT);
+    client.write_P(index_html11, strlen_P(index_html11));
+    client.print(_config.RESET_CONFIRMATION_TEXT);
+    client.write_P(index_html12, strlen_P(index_html12));
+    client.print(showResetField);
+    client.write_P(index_html13, strlen_P(index_html13));
+    client.flush();
+  }
   client.stop();
 }
 
@@ -664,10 +692,15 @@ void WiFiProvisioner::handleUpdateRequest() {
   networkScan(doc);
 
   WiFiClient client = _server->client();
-  sendHeader(client, 200, "application/json", measureJson(doc));
-  serializeJson(doc, client);
+  if (!client.connected()) {
+    return;
+  }
 
-  client.flush();
+  sendHeader(client, 200, "application/json", measureJson(doc));
+  if (client.connected()) {
+    serializeJson(doc, client);
+    client.flush();
+  }
   client.stop();
 }
 
@@ -811,13 +844,18 @@ bool WiFiProvisioner::connect(const char *ssid, const char *password) {
  */
 void WiFiProvisioner::sendBadRequestResponse() {
   WiFiClient client = _server->client();
+  if (!client.connected()) {
+    return;
+  }
 
   sendHeader(client, 400, "text/html", 0);
 
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
                              "Sent 400 Bad Request response to client");
 
-  client.flush();
+  if (client.connected()) {
+    client.flush();
+  }
   client.stop();
 }
 
@@ -830,11 +868,16 @@ void WiFiProvisioner::handleSuccesfulConnection() {
   doc["success"] = true;
 
   WiFiClient client = _server->client();
+  if (!client.connected()) {
+    return;
+  }
 
   sendHeader(client, 200, "application/json", measureJson(doc));
 
-  serializeJson(doc, client);
-  client.flush();
+  if (client.connected()) {
+    serializeJson(doc, client);
+    client.flush();
+  }
   client.stop();
 }
 
@@ -850,11 +893,17 @@ void WiFiProvisioner::handleUnsuccessfulConnection(const char *reason) {
   doc["reason"] = reason;
 
   WiFiClient client = _server->client();
+  if (!client.connected()) {
+    WiFi.disconnect(false, true);
+    return;
+  }
 
   sendHeader(client, 200, "application/json", measureJson(doc));
 
-  serializeJson(doc, client);
-  client.flush();
+  if (client.connected()) {
+    serializeJson(doc, client);
+    client.flush();
+  }
   client.stop();
 
   WiFi.disconnect(false, true);
@@ -876,9 +925,14 @@ void WiFiProvisioner::handleResetRequest() {
                              "Factory reset completed. Reloading UI.");
 
   WiFiClient client = _server->client();
+  if (!client.connected()) {
+    return;
+  }
 
   sendHeader(client, 200, "text/html", 0);
 
-  client.flush();
+  if (client.connected()) {
+    client.flush();
+  }
   client.stop();
 }
