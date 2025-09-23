@@ -62,8 +62,8 @@ void WiFiProvisioner::setupAP() {
   WiFi.disconnect(true);
   delay(100);
 
-  // Set WiFi mode to AP
-  WiFi.mode(WIFI_AP);
+  // Set WiFi mode to AP+STA (needed for captive portal detection)
+  WiFi.mode(WIFI_AP_STA);
   delay(100);
 
   // Configure AP IP settings
