@@ -90,6 +90,7 @@ void WiFiProvisioner::startServers() {
   // Setup web server routes
   _server->on("/", [this]() { handleRootRequest(); });
   _server->on("/connect", HTTP_POST, [this]() { handleConnectRequest(); });
+  _server->on("/favicon.ico", [this]() { _server->send(404, "text/plain", "Not found"); });
 
   // Captive portal detection endpoints for different devices
   _server->on("/generate_204", [this]() { handleRootRequest(); });          // Android
@@ -181,9 +182,9 @@ void WiFiProvisioner::handleConnectRequest() {
 }
 
 String WiFiProvisioner::loadHTMLTemplate() {
-  // Load embedded HTML template
+  // Load embedded HTML template (converted from binary at runtime)
   DEBUG_LOG("Loading embedded HTML template");
-  return String(FPSTR(HTML_TEMPLATE));
+  return getHTMLTemplate();
 }
 
 String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
