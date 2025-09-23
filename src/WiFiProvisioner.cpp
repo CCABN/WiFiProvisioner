@@ -15,7 +15,7 @@
 WiFiProvisioner::WiFiProvisioner(const char* apName)
   : _apName(apName), _server(nullptr), _dnsServer(nullptr),
     _apIP(192, 168, 4, 1), _netMask(255, 255, 255, 0),
-    _credentialsReceived(false) {
+    _credentialsReceived(false), _lastScanTime(0) {
 
   DEBUG_LOG("WiFiProvisioner initialized with AP name: %s", _apName);
 }
@@ -128,8 +128,11 @@ void WiFiProvisioner::handleRootRequest() {
     return;
   }
 
-  // Replace the networks placeholder with actual networks
-  String networksList = generateNetworksList();
+  // Check if user explicitly requested a refresh via the refresh button
+  bool forceRefresh = _server->hasArg("refresh");
+
+  // Replace the networks placeholder with cached or fresh networks
+  String networksList = generateNetworksList(forceRefresh);
   html.replace("{{NETWORKS_LIST}}", networksList);
 
   _server->send(200, "text/html", html);
@@ -179,14 +182,29 @@ String WiFiProvisioner::loadHTMLTemplate() {
   return String(FPSTR(HTML_TEMPLATE));
 }
 
-String WiFiProvisioner::generateNetworksList() {
-  DEBUG_LOG("Scanning for available networks...");
+String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
+  unsigned long currentTime = millis();
+
+  // Check if we need to refresh the cache
+  bool needsRefresh = forceRefresh ||
+                     _cachedNetworksList.length() == 0 ||
+                     (currentTime - _lastScanTime > SCAN_INTERVAL);
+
+  if (!needsRefresh) {
+    DEBUG_LOG("Using cached networks list");
+    return _cachedNetworksList;
+  }
+
+  DEBUG_LOG("Scanning for available networks (refresh=%s)...",
+            forceRefresh ? "forced" : "cache expired");
 
   // Scan for networks
   int networkCount = WiFi.scanNetworks();
 
   if (networkCount == 0) {
-    return "<div class=\"no-networks\">No networks found. Try refreshing.</div>";
+    _cachedNetworksList = "<div class=\"no-networks\">No networks found. Try refreshing.</div>";
+    _lastScanTime = currentTime;
+    return _cachedNetworksList;
   }
 
   String networksList = "";
@@ -211,7 +229,11 @@ String WiFiProvisioner::generateNetworksList() {
               signalStrength.c_str(), isSecured ? "Secured" : "Open");
   }
 
-  DEBUG_LOG("Generated networks list with %d networks", networkCount);
+  // Cache the results
+  _cachedNetworksList = networksList;
+  _lastScanTime = currentTime;
+
+  DEBUG_LOG("Generated and cached networks list with %d networks", networkCount);
   return networksList;
 }
 

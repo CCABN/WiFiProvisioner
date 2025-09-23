@@ -33,7 +33,7 @@ private:
 
   // Utility functions
   String loadHTMLTemplate();
-  String generateNetworksList();
+  String generateNetworksList(bool forceRefresh = false);
   String getSignalStrength(int rssi);
 
   const char* _apName;
@@ -45,6 +45,11 @@ private:
   // State variables
   bool _credentialsReceived;
   WiFiCredentials _credentials;
+
+  // Network scanning cache
+  String _cachedNetworksList;
+  unsigned long _lastScanTime;
+  static const unsigned long SCAN_INTERVAL = 30000; // 30 seconds
 };
 
 #endif // WIFIPROVISIONER_H

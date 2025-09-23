@@ -120,6 +120,7 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         <h1>WiFi Setup</h1>
 
         <form action="/" method="GET" style="margin-bottom: 20px;">
+            <input type="hidden" name="refresh" value="1">
             <button type="submit" class="refresh">🔄 Refresh Networks</button>
         </form>
 
