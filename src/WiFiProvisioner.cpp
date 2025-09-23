@@ -15,13 +15,14 @@
 #ifdef WIFI_PROVISIONER_DEBUG
 #define WIFI_PROVISIONER_DEBUG_LOG(level, format, ...)                         \
   do {                                                                         \
-    if (level >= WIFI_PROVISIONER_LOG_INFO) {                                  \
-      Serial.printf("[%s] " format "\n",                                       \
+    if (level >= WIFI_PROVISIONER_LOG_DEBUG) {                                 \
+      Serial.printf("[WIFI_PROV][%s] " format "\n",                           \
                     (level == WIFI_PROVISIONER_LOG_DEBUG)  ? "DEBUG"           \
                     : (level == WIFI_PROVISIONER_LOG_INFO) ? "INFO"            \
                     : (level == WIFI_PROVISIONER_LOG_WARN) ? "WARN"            \
                                                            : "ERROR",          \
                     ##__VA_ARGS__);                                            \
+      Serial.flush();                                                         \
     }                                                                          \
   } while (0)
 #else
@@ -91,28 +92,75 @@ void networkScan(JsonDocument &doc) {
 
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
                              "Starting Network Scan...");
-  int n = WiFi.scanNetworks(false, false);
+
+  // Clear any previous scan results
+  WiFi.scanDelete();
+
+  // Check current WiFi mode and status
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Current WiFi mode: %d, Status: %d",
+                             WiFi.getMode(), WiFi.status());
+
+  // Start asynchronous scan
+  int n = WiFi.scanNetworks(false, false, false, 300U);
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
-                             "Found %d networks", n);
+                             "Scan returned: %d", n);
+
+  if (n == WIFI_SCAN_RUNNING) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                               "Scan still running, waiting...");
+    // Wait for scan to complete with timeout
+    unsigned long scanStart = millis();
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING &&
+           (millis() - scanStart) < 10000) {
+      delay(100);
+    }
+    n = WiFi.scanComplete();
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                               "Scan completed with result: %d", n);
+  }
+
   if (n > 0) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                               "Found %d networks", n);
     for (int i = 0; i < n; ++i) {
       String ssid = WiFi.SSID(i);
-      if (ssid.length() > 0) {  // Only add networks with valid SSIDs
+      int32_t rssi = WiFi.RSSI(i);
+      wifi_auth_mode_t encryption = WiFi.encryptionType(i);
+
+      WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                                 "Network %d: SSID='%s', RSSI=%d, Encryption=%d",
+                                 i, ssid.c_str(), rssi, encryption);
+
+      if (ssid.length() > 0 && !ssid.startsWith("\\x00")) {  // Filter out invalid SSIDs
         JsonObject network = networks.add<JsonObject>();
-        network["rssi"] = convertRRSItoLevel(WiFi.RSSI(i));
+        network["rssi"] = convertRRSItoLevel(rssi);
         network["ssid"] = ssid;
-        network["authmode"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? 0 : 1;
+        network["authmode"] = (encryption == WIFI_AUTH_OPEN) ? 0 : 1;
+
+        WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                                   "Added network: %s (RSSI level: %d, Auth: %d)",
+                                   ssid.c_str(), convertRRSItoLevel(rssi),
+                                   (encryption == WIFI_AUTH_OPEN) ? 0 : 1);
+      } else {
+        WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                                   "Skipped invalid SSID at index %d", i);
       }
     }
   } else if (n == 0) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
                                "No networks found during scan");
+  } else if (n == WIFI_SCAN_FAILED) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
+                               "Network scan failed");
   } else {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
-                               "Network scan failed with error: %d", n);
+                               "Network scan returned unexpected result: %d", n);
   }
+
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
-                             "Network scan complete, added %d networks", networks.size());
+                             "Network scan complete, added %d networks to JSON",
+                             networks.size());
 }
 
 /**
@@ -382,14 +430,26 @@ void WiFiProvisioner::releaseResources() {
  * behavior and appearance of the provisioning system.
  */
 bool WiFiProvisioner::startProvisioning() {
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Starting WiFi provisioning process...");
+
+  // Check current WiFi status before starting
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Current WiFi mode: %d, Status: %d",
+                             WiFi.getMode(), WiFi.status());
+
   WiFi.disconnect(false, true);
   delay(_wifiDelay);
 
   releaseResources();
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Creating server instances...");
   _server = new WebServer(_serverPort);
   _dnsServer = new DNSServer();
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Setting WiFi mode to AP+STA...");
   if (!WiFi.mode(WIFI_AP_STA)) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
                                "Failed to switch to AP+STA mode");
@@ -397,25 +457,40 @@ bool WiFiProvisioner::startProvisioning() {
   }
   delay(_wifiDelay);
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Configuring Access Point with IP: %s, name: %s",
+                             _apIP.toString().c_str(), _config.AP_NAME);
+
   if (!WiFi.softAPConfig(_apIP, _apIP, _netMsk)) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
                                "Failed to configure AP IP settings");
     return false;
   }
+
   if (!WiFi.softAP(_config.AP_NAME)) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
-                               "Failed to start Access Point");
+                               "Failed to start Access Point: %s", _config.AP_NAME);
     return false;
   }
   delay(_wifiDelay);
 
+  // Verify AP is actually started
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Access Point started. IP: %s, Clients: %d",
+                             WiFi.softAPIP().toString().c_str(),
+                             WiFi.softAPgetStationNum());
+
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Starting DNS server on port %d...", _dnsPort);
   _dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   if (!_dnsServer->start(_dnsPort, "*", _apIP)) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_ERROR,
-                               "Failed to start DNS server");
+                               "Failed to start DNS server on port %d", _dnsPort);
     return false;
   }
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Registering HTTP request handlers...");
   _server->on("/", [this]() { this->handleRootRequest(); });
   _server->on("/configure", HTTP_POST,
               [this]() { this->handleConfigureRequest(); });
@@ -430,11 +505,22 @@ bool WiFiProvisioner::startProvisioning() {
               [this]() { this->handleResetRequest(); });
   _server->onNotFound([this]() { this->handleRootRequest(); });
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Starting HTTP server on port %d...", _serverPort);
   _server->begin();
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
                              "Provision server started at %s",
-                             WiFi.softAPIP().toString());
+                             WiFi.softAPIP().toString().c_str());
 
+  // Do an initial WiFi scan to check if scanning works
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Performing initial WiFi scan test...");
+  int networkCount = WiFi.scanNetworks(false, false);
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Initial scan found %d networks", networkCount);
+
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Entering main provisioning loop...");
   loop();
   return true;
 }
@@ -595,6 +681,10 @@ WiFiProvisioner &WiFiProvisioner::onSuccess(SuccessCallback callback) {
  *
  */
 void WiFiProvisioner::handleRootRequest() {
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Handling root request from %s",
+                             _server->client().remoteIP().toString().c_str());
+
   if (provisionCallback) {
     provisionCallback();
   }
@@ -618,14 +708,18 @@ void WiFiProvisioner::handleRootRequest() {
       strlen(_config.RESET_CONFIRMATION_TEXT) + strlen_P(index_html12) +
       strlen(showResetField) + strlen_P(index_html13);
 
-  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
                              "Calculated Content Length: %zu", contentLength);
 
   WiFiClient client = _server->client();
   if (!client.connected()) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
+                               "Client disconnected before sending response");
     return;
   }
 
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Sending HTML response to client");
   sendHeader(client, 200, "text/html", contentLength);
 
   if (client.connected()) {
@@ -655,6 +749,11 @@ void WiFiProvisioner::handleRootRequest() {
     client.print(showResetField);
     client.write_P(index_html13, strlen_P(index_html13));
     client.flush();
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                               "HTML response sent successfully");
+  } else {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
+                               "Client disconnected while sending HTML content");
   }
   client.stop();
 }
@@ -686,13 +785,24 @@ void WiFiProvisioner::handleRootRequest() {
  *   - `1`: Secured (password required)
  */
 void WiFiProvisioner::handleUpdateRequest() {
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_INFO,
+                             "Handling /update request from %s",
+                             _server->client().remoteIP().toString().c_str());
+
   JsonDocument doc;
 
   doc["show_code"] = _config.SHOW_INPUT_FIELD;
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "Starting network scan for /update request...");
   networkScan(doc);
+
+  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                             "JSON document size: %zu bytes", measureJson(doc));
 
   WiFiClient client = _server->client();
   if (!client.connected()) {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
+                               "Client disconnected before sending /update response");
     return;
   }
 
@@ -700,6 +810,11 @@ void WiFiProvisioner::handleUpdateRequest() {
   if (client.connected()) {
     serializeJson(doc, client);
     client.flush();
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
+                               "JSON response sent successfully for /update");
+  } else {
+    WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
+                               "Client disconnected while sending /update JSON");
   }
   client.stop();
 }
