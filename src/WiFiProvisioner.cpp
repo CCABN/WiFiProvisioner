@@ -184,7 +184,7 @@ void WiFiProvisioner::handleConnectRequest() {
 String WiFiProvisioner::loadHTMLTemplate() {
   // Load embedded HTML template (converted from binary at runtime)
   DEBUG_LOG("Loading embedded HTML template");
-  return getHTMLTemplate();
+  return htmlContent;
 }
 
 String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
