@@ -106,7 +106,10 @@ void WiFiProvisioner::startServers() {
   _server->on("/connecttest.txt", [this]() { handleRootRequest(); });      // Android
   _server->on("/redirect", [this]() { handleRootRequest(); });             // Generic
 
-  _server->onNotFound([this]() { handleRootRequest(); });  // Catch-all
+  _server->onNotFound([this]() {
+    DEBUG_LOG("Unknown request: %s %s", _server->method() == HTTP_GET ? "GET" : "POST", _server->uri().c_str());
+    handleRootRequest();
+  });  // Catch-all
 
   _server->begin();
   DEBUG_LOG("Servers started successfully");
