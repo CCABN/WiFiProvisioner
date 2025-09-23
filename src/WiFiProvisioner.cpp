@@ -191,8 +191,12 @@ void sendHeader(WiFiClient &client, int statusCode, const char *contentType,
   client.print("Content-Type: ");
   client.println(contentType);
 
-  client.print("Content-Length: ");
-  client.println(contentLength);
+  if (contentLength > 0) {
+    client.print("Content-Length: ");
+    client.println(contentLength);
+  } else {
+    client.println("Transfer-Encoding: chunked");
+  }
 
   client.println("Connection: close");
   client.println("Cache-Control: no-cache, no-store, must-revalidate");
@@ -200,6 +204,25 @@ void sendHeader(WiFiClient &client, int statusCode, const char *contentType,
   client.println("Expires: 0");
 
   client.println();
+}
+
+void sendChunkedData(WiFiClient &client, const char *data, size_t length) {
+  if (!client.connected() || length == 0) {
+    return;
+  }
+
+  // Send chunk size in hex
+  client.printf("%X\r\n", length);
+  // Send chunk data
+  client.write((const uint8_t*)data, length);
+  client.print("\r\n");
+}
+
+void sendChunkedEnd(WiFiClient &client) {
+  if (!client.connected()) {
+    return;
+  }
+  client.print("0\r\n\r\n");
 }
 
 } // namespace
@@ -694,23 +717,6 @@ void WiFiProvisioner::handleRootRequest() {
   char inputLengthStr[12];
   snprintf(inputLengthStr, sizeof(inputLengthStr), "%d", _config.INPUT_LENGTH);
 
-  size_t contentLength =
-      strlen_P(index_html1) + strlen(_config.HTML_TITLE) +
-      strlen_P(index_html2) + strlen(_config.THEME_COLOR) +
-      strlen_P(index_html3) + strlen(_config.SVG_LOGO) + strlen_P(index_html4) +
-      strlen(_config.PROJECT_TITLE) + strlen_P(index_html5) +
-      strlen(_config.PROJECT_SUB_TITLE) + strlen_P(index_html6) +
-      strlen(_config.PROJECT_INFO) + strlen_P(index_html7) +
-      strlen(_config.INPUT_TEXT) + strlen_P(index_html8) +
-      strlen(inputLengthStr) + strlen_P(index_html9) +
-      strlen(_config.CONNECTION_SUCCESSFUL) + strlen_P(index_html10) +
-      strlen(_config.FOOTER_TEXT) + strlen_P(index_html11) +
-      strlen(_config.RESET_CONFIRMATION_TEXT) + strlen_P(index_html12) +
-      strlen(showResetField) + strlen_P(index_html13);
-
-  WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
-                             "Calculated Content Length: %zu", contentLength);
-
   WiFiClient client = _server->client();
   if (!client.connected()) {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
@@ -719,42 +725,96 @@ void WiFiProvisioner::handleRootRequest() {
   }
 
   WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
-                             "Sending HTML response to client");
-  sendHeader(client, 200, "text/html", contentLength);
+                             "Sending chunked HTML response to client");
+
+  // Use chunked transfer for large content
+  sendHeader(client, 200, "text/html", 0);  // 0 = use chunked transfer
 
   if (client.connected()) {
-    client.write_P(index_html1, strlen_P(index_html1));
-    client.print(_config.HTML_TITLE);
-    client.write_P(index_html2, strlen_P(index_html2));
-    client.print(_config.THEME_COLOR);
-    client.write_P(index_html3, strlen_P(index_html3));
-    client.print(_config.SVG_LOGO);
-    client.write_P(index_html4, strlen_P(index_html4));
-    client.print(_config.PROJECT_TITLE);
-    client.write_P(index_html5, strlen_P(index_html5));
-    client.print(_config.PROJECT_SUB_TITLE);
-    client.write_P(index_html6, strlen_P(index_html6));
-    client.print(_config.PROJECT_INFO);
-    client.write_P(index_html7, strlen_P(index_html7));
-    client.print(_config.INPUT_TEXT);
-    client.write_P(index_html8, strlen_P(index_html8));
-    client.print(inputLengthStr);
-    client.write_P(index_html9, strlen_P(index_html9));
-    client.print(_config.CONNECTION_SUCCESSFUL);
-    client.write_P(index_html10, strlen_P(index_html10));
-    client.print(_config.FOOTER_TEXT);
-    client.write_P(index_html11, strlen_P(index_html11));
-    client.print(_config.RESET_CONFIRMATION_TEXT);
-    client.write_P(index_html12, strlen_P(index_html12));
-    client.print(showResetField);
-    client.write_P(index_html13, strlen_P(index_html13));
-    client.flush();
+    // Send HTML in chunks to prevent buffer overflow
+    char chunkBuffer[512];  // 512 byte chunks
+
+    // Chunk 1: HTML start and title
+    sendChunkedData(client, index_html1, strlen_P(index_html1));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.HTML_TITLE, strlen(_config.HTML_TITLE));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 2: CSS and theme
+    sendChunkedData(client, index_html2, strlen_P(index_html2));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.THEME_COLOR, strlen(_config.THEME_COLOR));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 3: SVG and header
+    sendChunkedData(client, index_html3, strlen_P(index_html3));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.SVG_LOGO, strlen(_config.SVG_LOGO));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 4: Project info
+    sendChunkedData(client, index_html4, strlen_P(index_html4));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.PROJECT_TITLE, strlen(_config.PROJECT_TITLE));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html5, strlen_P(index_html5));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.PROJECT_SUB_TITLE, strlen(_config.PROJECT_SUB_TITLE));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html6, strlen_P(index_html6));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.PROJECT_INFO, strlen(_config.PROJECT_INFO));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 5: Input and form elements
+    sendChunkedData(client, index_html7, strlen_P(index_html7));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.INPUT_TEXT, strlen(_config.INPUT_TEXT));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html8, strlen_P(index_html8));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, inputLengthStr, strlen(inputLengthStr));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 6: Success message and footer
+    sendChunkedData(client, index_html9, strlen_P(index_html9));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.CONNECTION_SUCCESSFUL, strlen(_config.CONNECTION_SUCCESSFUL));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html10, strlen_P(index_html10));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.FOOTER_TEXT, strlen(_config.FOOTER_TEXT));
+    if (!client.connected()) goto cleanup;
+
+    // Chunk 7: Reset and final HTML
+    sendChunkedData(client, index_html11, strlen_P(index_html11));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, _config.RESET_CONFIRMATION_TEXT, strlen(_config.RESET_CONFIRMATION_TEXT));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html12, strlen_P(index_html12));
+    if (!client.connected()) goto cleanup;
+    sendChunkedData(client, showResetField, strlen(showResetField));
+    if (!client.connected()) goto cleanup;
+
+    sendChunkedData(client, index_html13, strlen_P(index_html13));
+    if (!client.connected()) goto cleanup;
+
+    // End chunked transfer
+    sendChunkedEnd(client);
+
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_DEBUG,
-                               "HTML response sent successfully");
+                               "Chunked HTML response sent successfully");
   } else {
     WIFI_PROVISIONER_DEBUG_LOG(WIFI_PROVISIONER_LOG_WARN,
-                               "Client disconnected while sending HTML content");
+                               "Client disconnected before sending HTML content");
   }
+
+cleanup:
   client.stop();
 }
 
