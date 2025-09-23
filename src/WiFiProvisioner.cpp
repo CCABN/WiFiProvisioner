@@ -1,8 +1,8 @@
 #include "WiFiProvisioner.h"
-#include "html_template.h"
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <WiFi.h>
+#include <SPIFFS.h>
 
 #define DEBUG_WIFI_PROV 1
 
@@ -182,9 +182,24 @@ void WiFiProvisioner::handleConnectRequest() {
 }
 
 String WiFiProvisioner::loadHTMLTemplate() {
-  // Load embedded HTML template (converted from binary at runtime)
-  DEBUG_LOG("Loading embedded HTML template");
-  return htmlContent;
+  DEBUG_LOG("Loading HTML template from SPIFFS");
+
+  if (!SPIFFS.begin(true)) {
+    DEBUG_LOG("Failed to mount SPIFFS");
+    return "";
+  }
+
+  File file = SPIFFS.open("/index.html", "r");
+  if (!file) {
+    DEBUG_LOG("Failed to open /index.html from SPIFFS");
+    return "";
+  }
+
+  String html = file.readString();
+  file.close();
+
+  DEBUG_LOG("Successfully loaded HTML template (%d bytes)", html.length());
+  return html;
 }
 
 String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
