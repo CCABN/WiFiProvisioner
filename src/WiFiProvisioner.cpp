@@ -96,7 +96,17 @@ void WiFiProvisioner::startServers() {
   // Setup web server routes
   _server->on("/", [this]() { handleRootRequest(); });
   _server->on("/connect", HTTP_POST, [this]() { handleConnectRequest(); });
-  _server->onNotFound([this]() { handleRootRequest(); });  // Captive portal
+
+  // Captive portal detection endpoints for different devices
+  _server->on("/generate_204", [this]() { handleRootRequest(); });          // Android
+  _server->on("/fwlink", [this]() { handleRootRequest(); });               // Microsoft
+  _server->on("/hotspot-detect.html", [this]() { handleRootRequest(); });  // iOS
+  _server->on("/library/test/success.html", [this]() { handleRootRequest(); }); // iOS
+  _server->on("/ncsi.txt", [this]() { handleRootRequest(); });             // Windows
+  _server->on("/connecttest.txt", [this]() { handleRootRequest(); });      // Android
+  _server->on("/redirect", [this]() { handleRootRequest(); });             // Generic
+
+  _server->onNotFound([this]() { handleRootRequest(); });  // Catch-all
 
   _server->begin();
   DEBUG_LOG("Servers started successfully");
