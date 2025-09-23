@@ -99,6 +99,7 @@ void WiFiProvisioner::startServers() {
 
   // Captive portal detection endpoints for different devices
   _server->on("/generate_204", [this]() { handleRootRequest(); });          // Android
+  _server->on("/gen_204", [this]() { handleRootRequest(); });              // Android (short version)
   _server->on("/fwlink", [this]() { handleRootRequest(); });               // Microsoft
   _server->on("/hotspot-detect.html", [this]() { handleRootRequest(); });  // iOS
   _server->on("/library/test/success.html", [this]() { handleRootRequest(); }); // iOS
