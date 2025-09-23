@@ -108,6 +108,10 @@ void WiFiProvisioner::startServers() {
 
   _server->begin();
   DEBUG_LOG("Servers started successfully");
+
+  // Start initial network scan in background (non-blocking)
+  DEBUG_LOG("Starting background network scan...");
+  WiFi.scanNetworks(true); // Async scan
 }
 
 void WiFiProvisioner::handleClient() {
@@ -195,11 +199,24 @@ String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
     return _cachedNetworksList;
   }
 
-  DEBUG_LOG("Scanning for available networks (refresh=%s)...",
-            forceRefresh ? "forced" : "cache expired");
+  // Check if async scan is running
+  int scanResult = WiFi.scanComplete();
 
-  // Scan for networks
-  int networkCount = WiFi.scanNetworks();
+  if (scanResult == WIFI_SCAN_RUNNING) {
+    DEBUG_LOG("Scan in progress, showing loading indicator");
+    return "<div class=\"scanning\">📶 Scanning for networks... <div class=\"spinner\"></div></div>";
+  }
+
+  // If no scan running and we need refresh, start async scan
+  if (scanResult == WIFI_SCAN_FAILED || forceRefresh) {
+    DEBUG_LOG("Starting async network scan (refresh=%s)...", forceRefresh ? "forced" : "auto");
+    WiFi.scanNetworks(true); // Start async scan
+    return "<div class=\"scanning\">📶 Scanning for networks... <div class=\"spinner\"></div></div>";
+  }
+
+  // Process completed scan results
+  int networkCount = scanResult;
+  DEBUG_LOG("Processing scan results: %d networks found", networkCount);
 
   if (networkCount == 0) {
     _cachedNetworksList = "<div class=\"no-networks\">No networks found. Try refreshing.</div>";
@@ -229,9 +246,10 @@ String WiFiProvisioner::generateNetworksList(bool forceRefresh) {
               signalStrength.c_str(), isSecured ? "Secured" : "Open");
   }
 
-  // Cache the results
+  // Cache the results and clear scan results
   _cachedNetworksList = networksList;
   _lastScanTime = currentTime;
+  WiFi.scanDelete(); // Free memory
 
   DEBUG_LOG("Generated and cached networks list with %d networks", networkCount);
   return networksList;

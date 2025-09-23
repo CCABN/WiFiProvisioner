@@ -18,7 +18,19 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             font-family: Arial, sans-serif;
             margin: 20px;
             background: #f5f5f5;
+            /* Disable pull-to-refresh */
+            overscroll-behavior-y: contain;
+            -webkit-overflow-scrolling: touch;
         }
+
+        /* Disable pull-to-refresh more aggressively */
+        html, body {
+            overflow-x: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+
         .container {
             max-width: 400px;
             margin: 0 auto;
@@ -26,6 +38,9 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            height: calc(100vh - 40px);
+            box-sizing: border-box;
         }
         h1 {
             color: #333;
@@ -113,6 +128,27 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             color: #666;
             font-style: italic;
         }
+        .scanning {
+            padding: 20px;
+            text-align: center;
+            color: #007cba;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007cba;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -174,6 +210,35 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
                 }
             }
         });
+
+        // Auto-refresh when scanning is detected
+        document.addEventListener('DOMContentLoaded', function() {
+            function checkForScanningAndRefresh() {
+                const scanningElement = document.querySelector('.scanning');
+                if (scanningElement) {
+                    // If scanning, refresh page in 2 seconds to check for results
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                }
+            }
+
+            checkForScanningAndRefresh();
+        });
+
+        // Disable pull-to-refresh with JavaScript
+        let startY = 0;
+        document.addEventListener('touchstart', function(e) {
+            startY = e.touches[0].pageY;
+        });
+
+        document.addEventListener('touchmove', function(e) {
+            const y = e.touches[0].pageY;
+            // Disable pull-to-refresh if at top of page and pulling down
+            if (y > startY && window.pageYOffset === 0) {
+                e.preventDefault();
+            }
+        }, { passive: false });
     </script>
 </body>
 </html>)rawliteral";
