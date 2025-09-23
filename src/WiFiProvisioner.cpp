@@ -1,8 +1,8 @@
 #include "WiFiProvisioner.h"
+#include "html_template.h"
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <WiFi.h>
-#include <SPIFFS.h>
 
 #define DEBUG_WIFI_PROV 1
 
@@ -26,12 +26,6 @@ WiFiProvisioner::~WiFiProvisioner() {
 
 WiFiCredentials WiFiProvisioner::getCredentials() {
   DEBUG_LOG("Starting credential collection process...");
-
-  // Initialize SPIFFS to read HTML file
-  if (!SPIFFS.begin(true)) {
-    DEBUG_LOG("SPIFFS Mount Failed");
-    return {"", "", false, "SPIFFS initialization failed"};
-  }
 
   // Reset state
   _credentialsReceived = false;
@@ -180,31 +174,9 @@ void WiFiProvisioner::handleConnectRequest() {
 }
 
 String WiFiProvisioner::loadHTMLTemplate() {
-  File file = SPIFFS.open("/index.html", "r");
-  if (!file) {
-    DEBUG_LOG("Failed to open /index.html from SPIFFS, using fallback HTML");
-    // Fallback minimal HTML for testing
-    return R"(<!DOCTYPE html>
-<html>
-<head><title>WiFi Setup</title><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="font-family: Arial; margin: 20px; background: #f5f5f5;">
-<div style="max-width: 400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px;">
-<h1>WiFi Setup</h1>
-<form action="/connect" method="POST">
-<p><strong>Available Networks:</strong></p>
-{{NETWORKS_LIST}}
-<p><label>Network Name (SSID):</label><br><input type="text" name="ssid" required style="width: 100%; padding: 8px;"></p>
-<p><label>Password:</label><br><input type="password" name="password" style="width: 100%; padding: 8px;"></p>
-<button type="submit" style="width: 100%; padding: 12px; background: #007cba; color: white; border: none; border-radius: 4px;">Connect</button>
-</form>
-</div>
-</body>
-</html>)";
-  }
-
-  String content = file.readString();
-  file.close();
-  return content;
+  // Load embedded HTML template
+  DEBUG_LOG("Loading embedded HTML template");
+  return String(FPSTR(HTML_TEMPLATE));
 }
 
 String WiFiProvisioner::generateNetworksList() {
@@ -268,8 +240,6 @@ void WiFiProvisioner::releaseResources() {
   // Stop AP mode
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
-
-  SPIFFS.end();
 
   DEBUG_LOG("Resources released successfully");
 }
