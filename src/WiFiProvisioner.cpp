@@ -185,21 +185,102 @@ String WiFiProvisioner::loadHTMLTemplate() {
   DEBUG_LOG("Loading HTML template from SPIFFS");
 
   if (!SPIFFS.begin(true)) {
-    DEBUG_LOG("Failed to mount SPIFFS");
-    return "";
+    DEBUG_LOG("Failed to mount SPIFFS, using fallback HTML");
+    return getFallbackHTML();
   }
 
-  File file = SPIFFS.open("/index.html", "r");
+  File file = SPIFFS.open("/wifiportal.html", "r");
   if (!file) {
-    DEBUG_LOG("Failed to open /index.html from SPIFFS");
-    return "";
+    DEBUG_LOG("Failed to open /wifiportal.html from SPIFFS, using fallback HTML");
+    return getFallbackHTML();
   }
 
   String html = file.readString();
   file.close();
 
+  if (html.length() == 0) {
+    DEBUG_LOG("Empty HTML file, using fallback HTML");
+    return getFallbackHTML();
+  }
+
   DEBUG_LOG("Successfully loaded HTML template (%d bytes)", html.length());
   return html;
+}
+
+String WiFiProvisioner::getFallbackHTML() {
+  return R"HTML(<!DOCTYPE html>
+<html>
+<head>
+    <title>WiFi Setup - File Missing</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+            text-align: center;
+        }
+        .container {
+            max-width: 500px;
+            margin: 50px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #d32f2f; }
+        .info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚠️ Custom HTML Template Missing</h1>
+        <p>The WiFiProvisioner library is looking for a custom HTML template but couldn't find it.</p>
+
+        <div class="info">
+            <strong>Expected file location:</strong><br>
+            <code>/wifiportal.html</code> in your ESP32's SPIFFS filesystem
+
+            <br><br><strong>To fix this:</strong>
+            <ol>
+                <li>Create a <code>data/</code> folder in your project root</li>
+                <li>Copy the HTML template to <code>data/wifiportal.html</code></li>
+                <li>Add <code>board_build.filesystem = spiffs</code> to your platformio.ini</li>
+                <li>Run <code>pio run --target uploadfs</code> to upload the file</li>
+            </ol>
+        </div>
+
+        <p><strong>Basic Network Form:</strong></p>
+        <form action="/connect" method="POST" style="text-align: left;">
+            <label>Network Name (SSID):</label><br>
+            <input type="text" name="ssid" required style="width: 100%; padding: 8px; margin: 5px 0;"><br><br>
+
+            <label>Password:</label><br>
+            <input type="password" name="password" style="width: 100%; padding: 8px; margin: 5px 0;"><br><br>
+
+            <button type="submit" style="width: 100%; padding: 10px; background: #007cba; color: white; border: none; border-radius: 4px;">Connect</button>
+        </form>
+
+        <p style="font-size: 12px; color: #666; margin-top: 20px;">
+            Networks: {{NETWORKS_LIST}}
+        </p>
+    </div>
+</body>
+</html>)HTML";
 }
 
 String WiFiProvisioner::generateNetworksList(bool forceRefresh) {

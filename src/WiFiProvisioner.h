@@ -33,6 +33,7 @@ private:
 
   // Utility functions
   String loadHTMLTemplate();
+  String getFallbackHTML();
   String generateNetworksList(bool forceRefresh = false);
   String getSignalStrength(int rssi);
 

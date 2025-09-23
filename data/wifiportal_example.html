@@ -1,3 +1,19 @@
+<!--
+    WiFiProvisioner Custom Portal Template
+
+    This is an example HTML template for the WiFiProvisioner library.
+
+    To use this template:
+    1. Copy this file to your project's data/ folder as "wifiportal.html"
+    2. Add "board_build.filesystem = spiffs" to your platformio.ini
+    3. Run "pio run --target uploadfs" to upload to ESP32
+
+    The library will automatically load /wifiportal.html from SPIFFS.
+    If not found, it shows a fallback error page with setup instructions.
+
+    Required placeholder: {{NETWORKS_LIST}} - replaced with scanned networks
+    Required form action: "/connect" with "ssid" and "password" fields
+-->
 <!DOCTYPE html>
 <html>
 <head>
